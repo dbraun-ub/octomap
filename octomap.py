@@ -90,7 +90,7 @@ class Octomap(object):
     """
     The octree itself, which is capable of adding and searching for nodes.
     """
-    def __init__(self, worldSize, origin=(0, 0, 0), limit_nodes=1, limit_depth=10):
+    def __init__(self, worldSize, origin=(0, 0, 0), limit_nodes=1, limit_depth=10, depthMap=None, intrinsic=None, image=None, rayCast=True):
         """
         Init the world bounding root cube
         all world geometry is inside this
@@ -107,6 +107,13 @@ class Octomap(object):
         self.limit_nodes = limit_nodes
         # if limit_depth = 0, there is no limit
         self.limit_depth = limit_depth
+
+        if depthMap is not None:
+            if intrinsic is not None:
+                self.insertFromDepthMap(depthMap, intrinsic, image=image, rayCast=rayCast)
+            else:
+                print("intrinsic parameters are missing.")
+
 
 
     @staticmethod
@@ -653,6 +660,9 @@ class Octomap(object):
 
         for k in range(8):
             self.root.branches[k] = self.__insertPointCloud_noloop(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k], colorBranch[k])
+
+        if rayCast:
+            self.rayCast()
 
 
     # # Vanilla solution using Insert Point
