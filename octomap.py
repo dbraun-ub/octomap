@@ -1,10 +1,12 @@
 from __future__ import print_function
 
 from multiprocessing import Process, Pool
+from functools import partial
 
 import numpy as np
 import open3d
 import time
+import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
 #       http://code.activestate.com/recipes/498121-python-octree-implementation/
@@ -827,34 +829,19 @@ class Octomap(object):
 
     def rayCast(self):
         # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
-        if self.limit_depth > 0:
-            maxDepth = self.limit_depth
-        else:
-            maxDepth = self.getMaxDepth()
-
-        resolution = self.worldSize / 2**(maxDepth)
+        resolution = self.worldSize / 2**self.getMaxDepth()
         itDepth = self.iterateDepthFirst()
-        O = self.origin
-        print("maxDepth:", maxDepth)
-        print("step:",resolution)
-        for i, x in enumerate(itDepth):
-            P = x.position
-            OP = [P[0] - O[0], P[1] - O[1], P[2] - O[2]]
-            step = np.multiply(resolution, OP / np.linalg.norm(OP))
-            # all points between the endpoint and the origin
-            pts = np.array([np.arange(O[0], P[0], step[0]), np.arange(O[1], P[1], step[1]) , np.arange(O[2], P[2], step[2])]).T
-            # pointArray.append(pts[1:])
-            if i == 0:
-                pointArray = pts[1:]
-            else:
-                pointArray = np.concatenate((pointArray, pts[1:]))
-            # print(f"{i}: step={step}")
+        p = Pool()
+        pointArray = p.map(partial(octomap_utils.constructRay, resolution, self.origin), itDepth)
+        p.close()
+        p.join()
+        pointArray = np.vstack(pointArray)
 
-        # print(f"pointArray.shape: {pointArray.shape}")
         pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, self.root)
 
         for k in range(8):
             self.root.branches[k] = self.__rayCastTree(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k])
+
 
     def __rayCastTree(self, pointArray, branch, parent, branchPosition):
         if len(pointArray) == 0:
@@ -867,8 +854,6 @@ class Octomap(object):
             pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, branch)
             for k in range(8):
                 branch.branches[k] = self.__rayCastTree(pointsBranch[k], branch.branches[k], branch, branchPosition[k])
-        # elif branch.data is None:
-        #     return OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
         return branch
 
     # def __rayCastTree(self, pointArray, branch, parent, branchPosition):
