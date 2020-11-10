@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 import open3d
 import time
-import octomap_utils
+from octomap_utils import constructRay
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
 #       http://code.activestate.com/recipes/498121-python-octree-implementation/
@@ -473,142 +473,8 @@ class Octomap(object):
 
         return pointsBranch, newCenter
 
-    # anchor to insertFromDepthMap_noloop
-    def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
-        return self.insertFromDepthMap_noloop(depthMap, intrinsic, depthScale, image, rayCast, maxDepth)
-
-    # # Vanilla solution using Insert Point
-    # def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
-    #     cx = intrinsic[0,2]
-    #     cy = intrinsic[1,2]
-    #     fx = intrinsic[0,0]
-    #     fy = intrinsic[1,1]
-    #     h,w = depthMap.shape
-    #
-    #     ptCloud = []
-    #     color = []
-    #     for v in range(h):
-    #         for u in range(w):
-    #             d = depthMap[v,u]
-    #             if d > 0:
-    #                 z = d / depthScale
-    #                 x = (u-cx) * z / fx
-    #                 y = (v - cy) * z / fy
-    #                 #print((x**2+y**2+z**2)**(1/2))
-    #                 if (maxDepth > 0) and ((x**2+y**2+z**2)**(1/2) > maxDepth):
-    #                         continue
-    #                 ptCloud.append((x,y,z))
-    #                 if not (image is None):
-    #                     c = image[v][u]
-    #                     if len(image.shape)<3:
-    #                         color.append([c/255,c/255,c/255])
-    #                     else:
-    #                         color.append([c[2]/255,c[1]/255,c[0]/255])
-    #
-    #     for i in range(len(ptCloud)):
-    #         obj = Point(ptCloud[i], color=color[i], occupancy=1)
-    #         self.insertNode(obj.position, obj)
-
-    # # Solution with insert point cloud sithout inserting them one by one. And a small amount of multiprocessing
-    # def insertFromDepthMap2(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
-    #     cx = intrinsic[0,2]
-    #     cy = intrinsic[1,2]
-    #     fx = intrinsic[0,0]
-    #     fy = intrinsic[1,1]
-    #     h,w = depthMap.shape
-    #
-    #     ptCloud = []
-    #     color = []
-    #     start_time = time.time()
-    #     for v in range(h):
-    #         for u in range(w):
-    #             d = depthMap[v,u]
-    #             if d > 0:
-    #                 z = d / depthScale
-    #                 x = (u-cx) * z / fx
-    #                 y = (v - cy) * z / fy
-    #                 #print((x**2+y**2+z**2)**(1/2))
-    #                 if (maxDepth > 0) and ((x**2+y**2+z**2)**(1/2) > maxDepth):
-    #                     continue
-    #                 if np.any((x,y,z) < self.root.lower):
-    #                     continue
-    #                 if np.any((x,y,z) > self.root.upper):
-    #                     continue
-    #                 ptCloud.append((x,y,z))
-    #                 if not (image is None):
-    #                     c = image[v][u]
-    #                     if len(image.shape)<3:
-    #                         color.append([c/255,c/255,c/255])
-    #                     else:
-    #                         color.append([c[2]/255,c[1]/255,c[0]/255])
-    #     print(f"DEBUG octomap.py line 475 : Loop executed in {time.time() - start_time}")
-    #
-    #     self.insertPointCloud(ptCloud)
-    #
-    # # Advance solution of solution 2 which gets rid of one loop by directly storing it in the correct branch
-    # def insertFromDepthMap3(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
-    #     cx = intrinsic[0,2]
-    #     cy = intrinsic[1,2]
-    #     fx = intrinsic[0,0]
-    #     fy = intrinsic[1,1]
-    #     h,w = depthMap.shape
-    #
-    #
-    #     self.root.isLeafNode = False
-    #     # starting from root, dispatch points in the eight root branches
-    #     # branch: 0 1 2 3 4 5 6 7
-    #     # x:      - - - - + + + +
-    #     # y:      - - + + - - + +
-    #     # z:      - + - + - + - +
-    #     m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-    #          [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
-    #     offset = self.root.size / 2
-    #     pointsBranch = [[], [], [], [], [], [], [], []]
-    #     for v in range(h):
-    #         for u in range(w):
-    #             d = depthMap[v,u]
-    #             if d > 0:
-    #                 z = d / depthScale
-    #                 x = (u-cx) * z / fx
-    #                 y = (v - cy) * z / fy
-    #
-    #                 # test if inside depth limits (if there is one)
-    #                 if (maxDepth > 0) and ((x**2+y**2+z**2)**(1/2) > maxDepth):
-    #                     continue
-    #                 if np.any((x,y,z) < self.root.lower):
-    #                     continue
-    #                 if np.any((x,y,z) > self.root.upper):
-    #                     continue
-    #
-    #                 # allocate the point to the corresponding branch
-    #                 for j in range(8):
-    #                     newCenter = np.add(self.root.position, np.multiply(offset, m[j]))
-    #                     # Inside x bound
-    #                     if (x > newCenter[0] - offset) and (x < newCenter[0] + offset):
-    #                         # Inside y bound
-    #                         if (y > newCenter[1] - offset) and (y < newCenter[1] + offset):
-    #                             # Inside z bound
-    #                             if (z > newCenter[2] - offset) and (z < newCenter[2] + offset):
-    #                                 color = [0,0,0]
-    #                                 if not (image is None):
-    #                                     c = image[v][u]
-    #                                     if len(image.shape)<3:
-    #                                         color = [c/255,c/255,c/255]
-    #                                     else:
-    #                                         color = [c[2]/255,c[1]/255,c[0]/255]
-    #                                 pointsBranch[j].append(Point((x,y,z), occupancy=1, color=color))
-    #                                 break
-    #
-    #
-    #     for k in range(8):
-    #         process = Process(target=self.__insertPointCloud, args=(pointsBranch[k], self.root.branches[k], self.root))
-    #         process.start()
-    #         # for k in range(8):
-    #         #     self.__insertPointCloud(pointsBranch[k], branch.branches[k], branch)
-
-
     # Solution without big loops
-    def insertFromDepthMap_noloop(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
+    def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
         cx = intrinsic[0,2]
         cy = intrinsic[1,2]
         fx = intrinsic[0,0]
@@ -842,7 +708,7 @@ class Octomap(object):
         resolution = self.worldSize / 2**self.getMaxDepth()
         itDepth = self.iterateDepthFirst()
         p = Pool()
-        pointArray = p.map(partial(octomap_utils.constructRay, resolution, self.origin), itDepth)
+        pointArray = p.map(partial(constructRay, resolution, self.origin), itDepth)
         p.close()
         p.join()
         pointArray = np.vstack(pointArray)
