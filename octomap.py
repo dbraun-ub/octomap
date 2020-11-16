@@ -336,7 +336,7 @@ class Octomap(object):
             branch = None
         # elif len(pointArray) == 1:
         #     branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color) for point, color in zip(pointArray, colorArray)])
-    elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
+        elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
             branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
             # print(f"Branch created - position:{branch.data[0].position}, color:{branch.data[0].color}")
         else:
