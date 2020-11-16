@@ -402,7 +402,7 @@ class Octomap(object):
 
         return pointsBranch, newCenter
 
-    # anchor to insertFromDepthMap_noloop
+    # Insert DepthMap into the octomap
     def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
         cx = intrinsic[0,2]
         cy = intrinsic[1,2]
