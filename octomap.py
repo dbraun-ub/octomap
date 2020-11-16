@@ -6,7 +6,8 @@ from functools import partial
 import numpy as np
 import open3d
 import time
-from octomap_utils import constructRay
+from .octomap_utils import constructRay
+# import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
 #       http://code.activestate.com/recipes/498121-python-octree-implementation/
@@ -328,79 +329,6 @@ class Octomap(object):
             if branch.isLeafNode:
                 yield branch
 
-    # # Manipulate Point object
-    # def insertPointCloud(self, ptCloud, occupancy=None):
-    #     # Insert point cloud to the Octomap
-    #     # If the occupancy occupancy is specified, it will be used to define the occupancy.
-    #     # Otherwise we use standard occupancy value (or none at first)
-    #     if occupancy == None:
-    #         occupancy = [1 for i in range(len(ptCloud))]
-    #
-    #     if len(ptCloud) == 1:
-    #         return self.insertNode(ptCloud[0], Point(ptCloud[0], occupancy=occupancy[0]))
-    #
-    #     # There is more than one point, so root is not a leafenode anymore.
-    #     self.root.isLeafNode = False
-    #
-    #     # self.__insertPointCloud(ptCloud, self.root, self.root)
-    #     # dispatch points in the eight branches
-    #     # branch: 0 1 2 3 4 5 6 7
-    #     # x:      - - - - + + + +
-    #     # y:      - - + + - - + +
-    #     # z:      - + - + - + - +
-    #     m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-    #          [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
-    #     offset = self.root.size / 2
-    #     pointsBranch = [[], [], [], [], [], [], [], []]
-    #     for i in range(len(ptCloud)):
-    #         # We start at root and dispatch points in the corresponding branches
-    #
-    #
-    #         for j in range(8):
-    #             newCenter = np.add(self.root.position, np.multiply(offset, m[j]))
-    #             # Inside x bound
-    #             if (ptCloud[i][0] > newCenter[0] - offset) and (ptCloud[i][0] < newCenter[0] + offset):
-    #                 # Inside y bound
-    #                 if (ptCloud[i][1] > newCenter[1] - offset) and (ptCloud[i][1] < newCenter[1] + offset):
-    #                     # Inside z bound
-    #                     if (ptCloud[i][2] > newCenter[2] - offset) and (ptCloud[i][2] < newCenter[2] + offset):
-    #                         pointsBranch[j].append(Point(ptCloud[i], occupancy=occupancy[i]))
-    #                         break
-    #
-    #     for k in range(8):
-    #         process = Process(target=self.__insertPointCloud, args=(pointsBranch[k], self.root.branches[k], self.root))
-    #         process.start()
-
-    # # Manipulate point objects
-    # def __insertPointCloud(self, PointArray, branch, parent):
-    #     if len(PointArray) == 0:
-    #         branch = None
-    #     elif len(PointArray) == 1:
-    #         branch = OctNode(parent.position, parent.size / 2, parent.depth + 1, PointArray[0])
-    #     else:
-    #         if branch is None:
-    #             branch = OctNode(parent.position, parent.size / 2, parent.depth + 1, [])
-    #         branch.isLeafNode = False
-    #
-    #         # dispatch points in the eight branches
-    #         # branch: 0 1 2 3 4 5 6 7
-    #         # x:      - - - - + + + +
-    #         # y:      - - + + - - + +
-    #         # z:      - + - + - + - +
-    #         m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-    #              [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
-    #         pointsBranch = [[], [], [], [], [], [], [], []]
-    #         offset = branch.size / 2
-    #
-    #         pointsBranch = Octomap.__sortByBranches(PointArray, branch)
-    #
-    #         for k in range(8):
-    #             process = Process(target=self.__insertPointCloud, args=(pointsBranch[k], branch.branches[k], branch))
-    #             process.start()
-    #         # for k in range(8):
-    #         #     self.__insertPointCloud(pointsBranch[k], branch.branches[k], branch)
-    #     return branch
-
     # No loop, don't manipulate array of Point object
     def __insertPointCloud_noloop(self, pointArray, branch, parent, branchPosition, colorArray):
         if len(pointArray) == 0:
@@ -418,6 +346,7 @@ class Octomap(object):
             else:
                 if branch.data is not None:
                     pointArray.append(branch.data[0].position)
+                    colorArray.append(branch.data[0].color)
                     branch.data = []
             branch.isLeafNode = False
 
@@ -473,7 +402,7 @@ class Octomap(object):
 
         return pointsBranch, newCenter
 
-    # Solution without big loops
+    # anchor to insertFromDepthMap_noloop
     def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
         cx = intrinsic[0,2]
         cy = intrinsic[1,2]
@@ -489,8 +418,6 @@ class Octomap(object):
             colorArray = image.reshape(h*w,3)
 
 
-
-        self.root.isLeafNode = False
         # starting from root, dispatch points in the eight root branches
         # branch: 0 1 2 3 4 5 6 7
         # x:      - - - - + + + +
@@ -520,6 +447,9 @@ class Octomap(object):
         idx = ptCloud[:,2] > 0
         ptCloud = ptCloud[idx]
         colorArray = colorArray[idx]
+
+        if len(ptCloud) > 0:
+            self.root.isLeafNode = False
 
         # allocate the point to the corresponding branch
         pointsBranch, branchPosition, colorBranch = Octomap.__sortByBranches(ptCloud, self.root, colorArray)
@@ -707,10 +637,18 @@ class Octomap(object):
         # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
         resolution = self.worldSize / 2**self.getMaxDepth()
         itDepth = self.iterateDepthFirst()
-        p = Pool()
-        pointArray = p.map(partial(constructRay, resolution, self.origin), itDepth)
-        p.close()
-        p.join()
+
+        # start_time = time.time()
+        # p = Pool()
+        # pointArray = p.map(partial(constructRay, resolution, self.origin), itDepth)
+        # p.close()
+        # p.join()
+        # print(f"construct pointArray in {}")
+
+        pointArray = []
+        for it in itDepth:
+            pointArray.append(constructRay(resolution, self.origin, it))
+
         pointArray = np.vstack(pointArray)
 
         pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, self.root)
@@ -862,7 +800,7 @@ class Octomap(object):
         # If an octomap is empty or contains a single element we stop the process
         if self.root.isLeafNode or octomapBis.root.isLeafNode:
             print("One of the octomap is too small to be evaluated")
-            return False
+            return 0
         # Accurcy: percentage of correctly matched nodes
         miss, match = Octomap.__digIntoDepth(self.root.branches, octomapBis.root.branches, miss=0, match=0)
         accuracy = match / (miss + match)
@@ -870,7 +808,7 @@ class Octomap(object):
 
     @staticmethod
     def __digIntoDepth(branches1, branches2, miss, match):
-        depth = Octomap.__getDepthAtBranches(branches1)
+        # depth = Octomap.__getDepthAtBranches(branches1)
         for i in range(8):
             branch1 = branches1[i]
             branch2 = branches2[i]
@@ -890,41 +828,42 @@ class Octomap(object):
                 continue
                 # accuracy += 1 / (8**depth)
             elif branch1 is None and not branch2.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(None, branch2.branches, miss, match)
+                miss, match = Octomap.__digIntoOneTree(None, branch2.branches, miss, match, branch2.depth + 1)
             elif branch2 is None and not branch1.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(None, branch1.branches, miss, match)
+                miss, match = Octomap.__digIntoOneTree(None, branch1.branches, miss, match, branch1.depth + 1)
             # Test is they are both leaf node. In that case, we compare the values
 
             elif branch1 is None:
                 # accuracy += int(None == branch2.data[0].occupancy) / (8**depth)
-                miss += int(None != branch2.data[0].occupancy) / (8**depth)
-                match += int(None == branch2.data[0].occupancy) / (8**depth)
+                miss += int(None != branch2.data[0].occupancy) / (8**branch2.depth )
+                match += int(None == branch2.data[0].occupancy) / (8**branch2.depth )
             elif branch2 is None:
                 # accuracy += int(branch1.data[0].occupancy == None) / (8**depth)
-                miss += int(None != branch1.data[0].occupancy) / (8**depth)
-                match += int(None == branch1.data[0].occupancy) / (8**depth)
+                miss += int(None != branch1.data[0].occupancy) / (8**branch1.depth)
+                match += int(None == branch1.data[0].occupancy) / (8**branch1.depth)
 
             elif branch1.isLeafNode and branch2.isLeafNode:
                 # accuracy += int(branch1.data[0].occupancy == branch2.data[0].occupancy) / (8**depth)
-                miss += int(branch1.data[0].occupancy != branch2.data[0].occupancy) / (8**depth)
-                match += int(branch1.data[0].occupancy == branch2.data[0].occupancy) / (8**depth)
+                miss += int(branch1.data[0].occupancy != branch2.data[0].occupancy) / (8**branch1.depth)
+                match += int(branch1.data[0].occupancy == branch2.data[0].occupancy) / (8**branch1.depth)
             # If a single one is a leafe node, we get the corresponding value
             # and keep digging into the other tree to compare it with the childens values
             elif branch1.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(branch1.data[0].occupancy, branch2.branches, miss, match)
+                miss, match = Octomap.__digIntoOneTree(branch1.data[0].occupancy, branch2.branches, miss, match, branch2.depth + 1)
             elif branch2.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(branch2.data[0].occupancy, branch1.branches, miss, match)
+                miss, match = Octomap.__digIntoOneTree(branch2.data[0].occupancy, branch1.branches, miss, match, branch1.depth + 1)
 
         # print("Accuracy =", accuracy)
         return miss, match
 
     @staticmethod
-    def __digIntoOneTree(comparisonValue, branches, miss, match):
-        depth = Octomap.__getDepthAtBranches(branches)
+    def __digIntoOneTree(comparisonValue, branches, miss, match, depth):
+        # depth = Octomap.__getDepthAtBranches(branches)
+        assert(depth is not None)
         for branch in branches:
             if branch is not None:
                 if not branch.isLeafNode:
-                    miss, match = Octomap.__digIntoOneTree(comparisonValue, branch.branches, miss, match)
+                    miss, match = Octomap.__digIntoOneTree(comparisonValue, branch.branches, miss, match, depth + 1)
             # while not branch.isLeafNode:
             #     accuracy = Octomap.__digIntoOneTree(comparisonValue, branch.branches, accuracy)
             # If we reach this point, the branch is a node leaf or None
