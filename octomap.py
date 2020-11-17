@@ -7,7 +7,6 @@ import numpy as np
 import open3d
 import time
 from octomap_utils import constructRay
-
 # import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
@@ -886,6 +885,64 @@ class Octomap(object):
                 match += int(comparisonValue == branch.data[0].occupancy) / (8**depth)
 
         return miss, match
+
+    # Evaluate the likelihood of an octomap with the self octomap used as a GT reference.
+    def evaluateOctomap(self, octomapToEvaluate):
+        if self.root.isLeafNode:
+            print("The octomap of reference is empty. It can't be used as an evaluation.")
+            return False
+
+        if octomapToEvaluate.root.isLeafNode:
+            print("The octomap is too small to be evaluated. Accuracy = 0")
+            return 0
+        # Accurcy: percentage of correctly matched nodes
+        miss, match = Octomap.__digIntoDepthSingleWay(self.root.branches, octomapToEvaluate.root.branches, miss=0, match=0)
+        accuracy = match / (miss + match)
+        return accuracy
+
+    @staticmethod
+    def __digIntoDepthSingleWay(refBranches, evalBranches, miss, match):
+        # Similar to digIntoDepth but do an oriented evaluation.
+        # Only evaluate nodes with known information from the reference branch
+
+        # Rules :
+        # If refBranch is None : Ignore
+        # Else evaluate or dig deeper
+
+        for i in range(8):
+            refBranch = refBranches[i]
+            evalBranch = evalBranches[i]
+            # If they are both not leafnodes we dig deeper
+            if not (refBranch is None or evalBranch is None):
+                if not (refBranch.isLeafNode or evalBranch.isLeafNode):
+                    miss, match = Octomap.__digIntoDepthSingleWay(refBranch.branches, evalBranch.branches, miss, match)
+
+            # If ref branch is None, we ignore
+            if refBranch is None:
+                continue
+            # If eval branch is None but ref branch is not
+            elif evalBranch is None:
+                # if ref is leafNode we evaluate
+                if refBranch.isLeafNode:
+                    miss += int(None != refBranch.data[0].occupancy) / (8**refBranch.depth)
+                    match += int(None == refBranch.data[0].occupancy) / (8**refBranch.depth)
+                # Else we dig into the tree
+                else:
+                    miss, match = Octomap.__digIntoOneTree(None, refBranch.branches, miss, match, refBranch.depth + 1)
+            #If they are both leaf node, we evaluate
+            elif refBranch.isLeafNode and evalBranch.isLeafNode:
+                miss += int(refBranch.data[0].occupancy != evalBranch.data[0].occupancy) / (8**refBranch.depth)
+                match += int(refBranch.data[0].occupancy == evalBranch.data[0].occupancy) / (8**refBranch.depth)
+            # If a single one is a leafe node, we get the corresponding value
+            # and keep digging into the other tree to compare it with the childens values
+            elif refBranch.isLeafNode:
+                miss, match = Octomap.__digIntoOneTree(refBranch.data[0].occupancy, evalBranch.branches, miss, match, evalBranch.depth + 1)
+            elif evalBranch.isLeafNode:
+                miss, match = Octomap.__digIntoOneTree(evalBranch.data[0].occupancy, refBranch.branches, miss, match, refBranch.depth + 1)
+
+        # print("Accuracy =", accuracy)
+        return miss, match
+
 
     @staticmethod
     def __getDepthAtBranches(branches):
