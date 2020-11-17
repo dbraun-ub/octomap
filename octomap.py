@@ -440,7 +440,7 @@ class Octomap(object):
         # print(f"ptCloud length : {len(ptCloud)}")
         # Filter out points outside max depth
         if maxDepth > 0:
-            idx = (x**2+y**2+z**2)**(1/2) > maxDepth
+            idx = (x**2+y**2+z**2)**(1/2) < maxDepth
             ptCloud = ptCloud[idx[:,0]]
             colorArray = colorArray[idx[:,0]]
 
@@ -458,6 +458,12 @@ class Octomap(object):
             self.root.branches[k] = self.__insertPointCloud_noloop(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k], colorBranch[k])
 
         if rayCast:
+            res = self.worldSize / 2**self.limit_depth
+            freeArray = []
+            for d in depthMap:
+                if d > 0:
+                    freeArray.append(np.arange(0+res, d, res))
+
             self.rayCast()
 
     def getMaxDepth(self):
