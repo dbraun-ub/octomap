@@ -6,7 +6,8 @@ from functools import partial
 import numpy as np
 import open3d
 import time
-from .octomap_utils import constructRay
+from octomap_utils import constructRay
+
 # import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
@@ -402,7 +403,7 @@ class Octomap(object):
 
         return pointsBranch, newCenter
 
-    # anchor to insertFromDepthMap_noloop
+    # Insert DepthMap into the octomap
     def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
         cx = intrinsic[0,2]
         cy = intrinsic[1,2]
@@ -523,7 +524,7 @@ class Octomap(object):
             else:
                 self.__cutTree(maxDepth, branch)
 
-    def visualize(self, max_depth=0, split=False):
+    def visualize(self, max_depth=0, split=False, displayFree=False):
         # Extract nodes and convert them to point cloud
         pt = []
         # updateMaxDepth = False
@@ -531,8 +532,12 @@ class Octomap(object):
             max_depth = self.limit_depth
 
         for i, x in enumerate(self.iterateDepthFirst()):
+            if displayFree:
+                pt.append(Point(x.position, size=x.size, depth=x.depth, color=x.data[0].color))
+            else:
+                if x.data[0].occupancy != 0:
+                    pt.append(Point(x.position, size=x.size, depth=x.depth, color=x.data[0].color))
             # if x.data[0].occupancy == 0:
-            pt.append(Point(x.position, size=x.size, depth=x.depth, color=x.data[0].color))
             # if x.depth > max_depth and updateMaxDepth:
             #     max_depth = x.depth
 
