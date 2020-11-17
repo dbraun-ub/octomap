@@ -7,6 +7,7 @@ import numpy as np
 import open3d
 import time
 from octomap_utils import constructRay
+
 # import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
