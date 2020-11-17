@@ -460,42 +460,6 @@ class Octomap(object):
         if rayCast:
             self.rayCast()
 
-
-    # # Vanilla solution using Insert Point
-    # def insertFromDepthMap5(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
-    #     cx = intrinsic[0,2]
-    #     cy = intrinsic[1,2]
-    #     fx = intrinsic[0,0]
-    #     fy = intrinsic[1,1]
-    #     h,w = depthMap.shape
-    #
-    #     m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-    #          [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
-    #     offset = self.root.size / 2
-    #     pointsBranch = [[], [], [], [], [], [], [], []]
-    #     ptCloud = []
-    #     u,v = np.meshgrid(np.arange(0,w),np.arange(0,h))
-    #     u = u.reshape(h*w,1)
-    #     v = v.reshape(h*w,1)
-    #     depthMap = depthMap.reshape(h*w,1)
-    #     z = depthMap / depthScale
-    #     x = (u - cx) * z / fx
-    #     y = (v - cy) * z / fy
-    #
-    #     ptCloud = np.concatenate((x,y,z), axis=1)
-    #     # Filter out points outside max depth
-    #     if maxDepth > 0:
-    #         idx = (x**2+y**2+z**2)**(1/2) > maxDepth
-    #         # print(ptCloud)
-    #         ptCloud = ptCloud[idx[:,0]]
-    #
-    #     idx = ptCloud[:,2] > 0
-    #     ptCloud = ptCloud[idx]
-    #
-    #     for i in range(len(ptCloud)):
-    #         obj = Point(ptCloud[i], occupancy=1)
-    #         self.insertNode(obj.position, obj)
-
     def getMaxDepth(self):
         max_depth = 0
         for i, x in enumerate(self.iterateDepthFirst()):
@@ -587,67 +551,10 @@ class Octomap(object):
 
         return self.__split2maxDepth(ptCloud, max_depth, output)
 
-    # def rayCast(self):
-    #     # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
-    #     if self.limit_depth > 0:
-    #         maxDepth = self.limit_depth
-    #     else:
-    #         maxDepth = self.getMaxDepth()
-    #
-    #     resolution = self.worldSize / 2**(maxDepth)
-    #     itDepth = self.iterateDepthFirst()
-    #     O = self.origin
-    #     print("maxDepth:", maxDepth)
-    #     print("step:",resolution)
-    #     for i, x in enumerate(itDepth):
-    #         P = x.position
-    #         OP = [P[0] - O[0], P[1] - O[1], P[2] - O[2]]
-    #         step = np.multiply(resolution, OP / np.linalg.norm(OP))
-    #         # all points between the endpoint and the origin
-    #         pointArray = np.array([np.arange(O[0], P[0], step[0]), np.arange(O[1], P[1], step[1]) , np.arange(O[2], P[2], step[2])]).T
-    #         # print(f"{i}: step={step}")
-    #         self.__rayCast(pointArray[1:])
-    #         # process = Process(target=self.__rayCast, args=(x.position, step))
-    #         # process.start()
-
-    # def rayCast_2(self):
-    #     # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
-    #     if self.limit_depth > 0:
-    #         maxDepth = self.limit_depth
-    #     else:
-    #         maxDepth = self.getMaxDepth()
-    #
-    #     resolution = self.worldSize / 2**(maxDepth)
-    #     itDepth = self.iterateDepthFirst()
-    #     O = self.origin
-    #     print("maxDepth:", maxDepth)
-    #     print("step:",resolution)
-    #     for i, x in enumerate(itDepth):
-    #         P = x.position
-    #         OP = [P[0] - O[0], P[1] - O[1], P[2] - O[2]]
-    #         step = np.multiply(resolution, OP / np.linalg.norm(OP))
-    #         # all points between the endpoint and the origin
-    #         pts = np.array([np.arange(O[0], P[0], step[0]), np.arange(O[1], P[1], step[1]) , np.arange(O[2], P[2], step[2])]).T
-    #         # pointArray.append(pts[1:])
-    #         if i == 0:
-    #             pointArray = pts[1:]
-    #         else:
-    #             pointArray = np.concatenate((pointArray, pts[1:]))
-    #         # print(f"{i}: step={step}")
-    #
-    #     self.__rayCast(pointArray)
-
     def rayCast(self):
         # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
         resolution = self.worldSize / 2**self.getMaxDepth()
         itDepth = self.iterateDepthFirst()
-
-        # start_time = time.time()
-        # p = Pool()
-        # pointArray = p.map(partial(constructRay, resolution, self.origin), itDepth)
-        # p.close()
-        # p.join()
-        # print(f"construct pointArray in {}")
 
         pointArray = []
         for it in itDepth:
@@ -673,128 +580,6 @@ class Octomap(object):
             for k in range(8):
                 branch.branches[k] = self.__rayCastTree(pointsBranch[k], branch.branches[k], branch, branchPosition[k])
         return branch
-
-    # def __rayCastTree(self, pointArray, branch, parent, branchPosition):
-    #     if len(pointArray) == 0:
-    #         return branch
-    #     color = (0.5,0.5,0.5)
-    #     if (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
-    #         branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
-    #
-    #     elif branch is None:
-    #         # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
-    #         branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
-    #         branch.isLeafNode = False
-    #
-    #     pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, branch)
-    #
-    #     for k in range(8):
-    #         branch.branches[k] = self.__rayCastTree(pointsBranch[k], branch.branches[k], branch, branchPosition[k])
-    #     # elif branch.data is None:
-    #     #     return OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
-    #     return branch
-
-    # def __rayCast(self, pointArray):
-    #     # If empty array
-    #     if pointArray.shape[0] == 0:
-    #         return True
-    #     # Study the first point only:
-    #     p = tuple(pointArray[0])
-    #     # Locate point in the octree
-    #     node = self.findPosition(p)
-    #
-    #     if node is None:
-    #         # print("is None")
-    #         node = self.insertNode(p, Point(p, occupancy=0, color=(0.5,0.5,0.5)))
-    #         node = self.findPosition(p)
-    #         # node = self.findPosition(p)
-    #     elif node.data is None:
-    #         node = self.insertNode(p, Point(p, occupancy=0, color=(0.5,0.5,0.5)))
-    #         # print("Node is None")
-    #
-    #     # Test how many points are inside this node
-    #     size = node.size
-    #     center = node.position
-    #     isInsideBorders = np.multiply(pointArray < center + size / 2, pointArray > center - size / 2)
-    #     mergedStates = isInsideBorders[:,0] * isInsideBorders[:,1] * isInsideBorders[:,2]
-    #     pointArray = pointArray[mergedStates == 0, :]
-    #     # print(pointArray)
-    #
-    #     self.__rayCast(pointArray)
-
-        # # move point toward the origin
-        # # compute manhattan distance at the border of the cube
-        # m1 = [[ 0, 0,-1],[ 0, 0, 1],[ 0,-1, 0],[ 0, 1, 0],[-1, 0, 0],[ 1, 0, 0]]
-        # m2 = [[ 0, 0, 1],[ 0, 0, 1],[ 0, 1, 0],[ 0, 1, 0],[ 1, 0, 0],[ 1, 0, 0]]
-        # o = self.origin
-        #
-        # # a = p + ( m1 * size / 2 + m2 * (origin - p))
-        # #
-        # # ----o-----------
-        # # |   ^          |
-        # # |   |          |
-        # # |   |          |
-        # # o<--x--------->o
-        # # |   |          |
-        # # |   v          |
-        # # ----o-----------
-        # #
-        # # We then compute the distance to the origin to see in which direction we must go
-        # limits = np.add(p, np.add(np.multiply(m1,size / 2),np.multiply(m2,np.add(o,np.multiply(-1,p)) )))
-        #
-        # # euclidean distance
-        # # d = [ ((p[0]-o[0])**2 + (p[1]-o[1])**2 + (p[2]-o[2])**2)**(1/2) for a in limits ]
-        #
-        # dmin = np.inf
-        # idx = None
-        # for i in range(6):
-        #     d = ((limits[i,0]-o[0])**2 + (limits[i,1]-o[1])**2 + (limits[i,2]-o[2])**2)**(1/2)
-        #     if d < dmin:
-        #         dmin = d
-        #         idx = i
-        #
-        # # We want to be just outside the current cube
-        # epsilon = self.worldSize / 2**self.getMaxDepth()
-        #
-        # # [x,y,z] = t * [xp,yp,zp] + [xo,yo,zo]
-        # # t = ([x,y,z] - [xo,yo,zo]) / [xp,yp,zp]
-        # # We fixed one of the value to identify t
-        # top = np.multiply((limits[idx] - o), m2[idx])
-        # btm = np.multiply(p, m1[idx])
-        # # Extract the non-zero value
-        # top = np.sum(top)
-        # btm = np.sum(top)
-        #
-        # offset = (top + epsilon) / btm
-        #
-        # position = np.multiply(offset, p)
-        #
-        # if ((position[0] - o[0])**2 + (position[1] - o[1])**2 + (position[2] - o[2])**2)**(1/2) < epsilon:
-        #     return True
-        #
-        # octnode = self.insertNode(position, Point(position, occupancy=0, color=(1,1,1)))
-
-        # node = self.findPosition(position)
-        # if node == None:
-        #     self.insertNode(position, Point(position, occupancy=0, color=(1,1,1)))
-        #     node = self.findPosition(position)
-
-        # # new point
-        # P = np.add(position, step)
-        # nodeData = self.findPosition(P)
-        # count = 0
-        # if nodeData is None:
-        #     self.insertNode(P, Point(P, occupancy=0, color=1))
-        #
-        # O = self.origin
-        # PO = [O[0] - P[0], O[1] - P[1], O[2] - P[2]]
-        # # print("point P:",P)
-        # # print("distance to origin:", np.linalg.norm(PO))
-        # if np.linalg.norm(PO) < np.linalg.norm(step):
-        #     return True
-        # else:
-        #     return self.__rayCast(P, step)
-
 
     def compareToOctomap(self, octomapBis):
         # compare the octomap to another.
