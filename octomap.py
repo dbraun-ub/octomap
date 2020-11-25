@@ -7,6 +7,9 @@ import numpy as np
 import open3d
 import time
 from octomap_utils import constructRay
+
+import torch
+
 # import octomap_utils
 
 # From: https://code.google.com/p/pynastran/source/browse/trunk/pyNastran/general/octree.py?r=949
@@ -48,7 +51,8 @@ class OctNode(object):
         y:      - - + + - - + +
         z:      - + - + - + - +
         """
-        self.position = position
+        # self.position = torch.tensor(position, dtype=torch.float32)
+        self.position = position.clone().detach()
         self.size = size
         self.depth = depth
 
@@ -100,6 +104,15 @@ class Octomap(object):
         if we insert more objects into it than MAX_OBJECTS_PER_CUBE, then it will subdivide itself.
 
         """
+        if torch.cuda.is_available():
+            dev = "cuda:0"
+            torch.set_default_tensor_type('torch.cuda.FloatTensor')
+        else:
+            dev = "cpu"
+            torch.set_default_tensor_type('torch.FloatTensor')
+        device = torch.device(dev)
+        print(f"device: {dev}")
+
 
         self.root = OctNode(origin, worldSize, 0, [])
         self.worldSize = worldSize
@@ -175,25 +188,31 @@ class Octomap(object):
             ## find out which direction we're heading in
             branch = self.__findBranch(parent, position)
 
-            ## new center = parent position + (branch direction * offset)
-            newCenter = (0, 0, 0)
+            m = torch.tensor([[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+                 [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
 
-            if branch == 0:
-                newCenter = (pos[0] - offset, pos[1] - offset, pos[2] - offset )
-            elif branch == 1:
-                newCenter = (pos[0] - offset, pos[1] - offset, pos[2] + offset )
-            elif branch == 2:
-                newCenter = (pos[0] - offset, pos[1] + offset, pos[2] - offset )
-            elif branch == 3:
-                newCenter = (pos[0] - offset, pos[1] + offset, pos[2] + offset )
-            elif branch == 4:
-                newCenter = (pos[0] + offset, pos[1] - offset, pos[2] - offset )
-            elif branch == 5:
-                newCenter = (pos[0] + offset, pos[1] - offset, pos[2] + offset )
-            elif branch == 6:
-                newCenter = (pos[0] + offset, pos[1] + offset, pos[2] - offset )
-            elif branch == 7:
-                newCenter = (pos[0] + offset, pos[1] + offset, pos[2] + offset )
+            ## new center = parent position + (branch direction * offset)
+
+            newCenter = pos + m[branch] * offset
+
+            # newCenter = (0,0,0)
+            # for i in range(8):
+            #     if branch == 0:
+            #         newCenter = (pos[0] - offset, pos[1] - offset, pos[2] - offset )
+            #     elif branch == 1:
+            #         newCenter = (pos[0] - offset, pos[1] - offset, pos[2] + offset )
+            #     elif branch == 2:
+            #         newCenter = (pos[0] - offset, pos[1] + offset, pos[2] - offset )
+            #     elif branch == 3:
+            #         newCenter = (pos[0] - offset, pos[1] + offset, pos[2] + offset )
+            #     elif branch == 4:
+            #         newCenter = (pos[0] + offset, pos[1] - offset, pos[2] - offset )
+            #     elif branch == 5:
+            #         newCenter = (pos[0] + offset, pos[1] - offset, pos[2] + offset )
+            #     elif branch == 6:
+            #         newCenter = (pos[0] + offset, pos[1] + offset, pos[2] - offset )
+            #     elif branch == 7:
+            #         newCenter = (pos[0] + offset, pos[1] + offset, pos[2] + offset )
 
             # Now we know the centre point of the new node
             # we already know the size as supplied by the parent node
@@ -332,10 +351,7 @@ class Octomap(object):
     # No loop, don't manipulate array of Point object
     def __insertPointCloud_noloop(self, pointArray, branch, parent, branchPosition, colorArray):
         if len(pointArray) == 0:
-            # print("DEBUG - octomap.py - line 409 : branch None")
             branch = None
-        # elif len(pointArray) == 1:
-        #     branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color) for point, color in zip(pointArray, colorArray)])
         elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
             branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
             # print(f"Branch created - position:{branch.data[0].position}, color:{branch.data[0].color}")
@@ -367,13 +383,14 @@ class Octomap(object):
         # x:      - - - - + + + +
         # y:      - - + + - - + +
         # z:      - + - + - + - +
-        m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
+        m = torch.tensor([[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
+        print(f"What device is this tensor using ? {m.get_device()}")
         pointsBranch = [[], [], [], [], [], [], [], []]
         colorBranch = [[], [], [], [], [], [], [], []]
         offset = branch.size / 4
-        newCenter = np.add(branch.position, np.multiply(offset, m))
-        isInsideBorders = [np.multiply(pointArray < c + offset,pointArray > c - offset) for c in newCenter]
+        newCenter = branch.position + offset * m
+        isInsideBorders = [(pointArray < c + offset) * (pointArray > c - offset) for c in newCenter]
         mergedStates = [a[:,0] * a[:,1] * a[:,2] for a in isInsideBorders]
 
         for i in range(8):
@@ -389,12 +406,12 @@ class Octomap(object):
         # x:      - - - - + + + +
         # y:      - - + + - - + +
         # z:      - + - + - + - +
-        m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
+        m = torch.tensor([[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
         pointsBranch = [[], [], [], [], [], [], [], []]
         offset = branch.size / 4
-        newCenter = np.add(branch.position, np.multiply(offset, m))
-        isInsideBorders = [np.multiply(pointArray < c + offset,pointArray > c - offset) for c in newCenter]
+        newCenter = branch.position + offset * m
+        isInsideBorders = [(pointArray < c + offset) * (pointArray > c - offset) for c in newCenter]
         mergedStates = [a[:,0] * a[:,1] * a[:,2] for a in isInsideBorders]
 
         for i in range(8):
@@ -404,6 +421,7 @@ class Octomap(object):
 
     # Insert DepthMap into the octomap
     def insertFromDepthMap(self, depthMap, intrinsic, depthScale=1, image=None, rayCast=False, maxDepth=0):
+        K = torch.tensor(intrinsic)#, dtype=torch.float32)
         cx = intrinsic[0,2]
         cy = intrinsic[1,2]
         fx = intrinsic[0,0]
@@ -411,7 +429,7 @@ class Octomap(object):
         h,w = depthMap.shape
 
         if image is None:
-            image = np.zeros((h,w,3))
+            image = torch.zeros((h,w,3))
         if len(image.shape) < 3:
             colorArray = image.reshape(h*w)
         else:
@@ -423,20 +441,28 @@ class Octomap(object):
         # x:      - - - - + + + +
         # y:      - - + + - - + +
         # z:      - + - + - + - +
-        m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
+        m = torch.tensor([[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
         offset = self.root.size / 2
         pointsBranch = [[], [], [], [], [], [], [], []]
         ptCloud = []
-        u,v = np.meshgrid(np.arange(0,w),np.arange(0,h))
-        u = u.reshape(h*w,1)
-        v = v.reshape(h*w,1)
+        # u,v = torch.meshgrid(torch.arange(start=0.,end=w,step=1.,dtype=torch.float32),torch.arange(0.,h,1.,dtype=torch.float32))
+        # start=self.origin[2]+res, end=float(d/depthScale), step=res
+        u,v = torch.meshgrid(torch.arange(0.,float(w)),torch.arange(0.,float(h)))
+        u = u.reshape(h*w,1).to('cuda:0')
+        v = v.reshape(h*w,1).to('cuda:0')
+        print(u.dtype)
         depthMap = depthMap.reshape(h*w,1)
         z = depthMap / depthScale
-        x = (u - cx) * z / fx
-        y = (v - cy) * z / fy
+        x = u*z
+        x = (u - K[0,2]) * z / K[0,0]
+        y = (v - K[1,2]) * z / K[1,1]
+        # x = (u - cx) * z / fx
+        # y = (v - cy) * z / fy
 
-        ptCloud = np.concatenate((x,y,z), axis=1)
+        # ptCloud = np.concatenate((x,y,z), axis=1)
+        ptCloud = torch.cat((x,y,z), 1)
+        print(ptCloud)
         # print(f"ptCloud length : {len(ptCloud)}")
         # Filter out points outside max depth
         if maxDepth > 0:
@@ -460,11 +486,27 @@ class Octomap(object):
         if rayCast:
             res = self.worldSize / 2**self.limit_depth
             freeArray = []
-            for d in depthMap:
+            X = torch.tensor([])#, dtype=torch.float32)
+            Y = torch.tensor([])#, dtype=torch.float32)
+            Z = torch.tensor([])#, dtype=torch.float32)
+            for d, cu, cv in zip(depthMap, u, v):
                 if d > 0:
-                    freeArray.append(np.arange(0+res, d, res))
+                    z = torch.arange(start=self.origin[2]+res, end=float(d/depthScale), step=res)
+                    x = (cu - K[0,2]) * z / K[0,0]
+                    y = (cv - K[1,2]) * z / K[1,1]
+                    X = torch.cat((X,x))
+                    Y = torch.cat((Y,y))
+                    Z = torch.cat((Z,z))
 
-            self.rayCast()
+            freeArray = torch.cat((X,Y,Z))
+            freeArray = freeArray.reshape(3, freeArray.shape / 3)
+            freeArray = torch.transpose(freeArray, 0, 1)
+
+
+            pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(freeArray, self.root)
+
+            for k in range(8):
+                self.root.branches[k] = self.__rayCastTree(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k])
 
     def getMaxDepth(self):
         max_depth = 0
@@ -519,7 +561,7 @@ class Octomap(object):
         if pt[0].color is None:
             pcd.colors = open3d.utility.Vector3dVector([[0.2, p.depth / max_depth, 0.2] for p in pt])
         else:
-            pcd.colors = open3d.utility.Vector3dVector([p.color if np.max(p.color) <= 1 else p.color / 255 for p in pt])
+            pcd.colors = open3d.utility.Vector3dVector([p.color if max(p.color) <= 1 else p.color / 255 for p in pt])
         # pcd.colors = open3d.utility.Vector3dVector([[0.2, p.depth / max_depth, 0.2] for p in pt])
         # pcd.colors = open3d.utility.Vector3dVector([p.color for p in pt])
         voxels = open3d.geometry.VoxelGrid.create_from_point_cloud(pcd, self.worldSize/(2**max_depth))
@@ -532,14 +574,14 @@ class Octomap(object):
             return output
 
         ptCloud = []
-        matrix = [[-1,-1,-1],
+        matrix = torch.tensor([[-1,-1,-1],
                [-1,-1, 1],
                [-1, 1,-1],
                [-1, 1, 1],
                [ 1,-1,-1],
                [ 1,-1, 1],
                [ 1, 1,-1],
-               [ 1, 1, 1]]
+               [ 1, 1, 1]], )#, dtype=torch.float32)
 
         for p in pointCloud:
             if p.depth >= max_depth:
@@ -547,7 +589,8 @@ class Octomap(object):
             else:
                 newSize = p.size / 4
                 newDepth = p.depth + 1
-                pos = np.add(np.multiply(matrix, newSize), p.position)
+                pos = (matrix * newSize) + p.position
+                # pos = np.add(np.multiply(matrix, newSize), p.position)
                 if newDepth == max_depth:
                     for i in range(8):
                         output.append(Point(pos[i], size=p.size / 2, depth=newDepth, color=p.color))
@@ -556,6 +599,23 @@ class Octomap(object):
                         ptCloud.append(Point(pos[i], size=p.size / 2, depth=newDepth, color=p.color))
 
         return self.__split2maxDepth(ptCloud, max_depth, output)
+
+    def rayCast(self, pointArray):
+        # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
+        # resolution = self.worldSize / 2**self.getMaxDepth()
+        # itDepth = self.iterateDepthFirst()
+        #
+        # pointArray = []
+        # for it in itDepth:
+        #     pointArray.append(constructRay(resolution, self.origin, it))
+        #
+        # # pointArray = np.vstack(pointArray)
+        # pointArray = torch.vstack(pointArray)
+
+        pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, self.root)
+
+        for k in range(8):
+            self.root.branches[k] = self.__rayCastTree(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k])
 
     def rayCast(self):
         # Insert new point along the line between the point P and the origin O with a step of the minimal resolution.
@@ -566,7 +626,8 @@ class Octomap(object):
         for it in itDepth:
             pointArray.append(constructRay(resolution, self.origin, it))
 
-        pointArray = np.vstack(pointArray)
+        # pointArray = np.vstack(pointArray)
+        pointArray = torch.vstack(pointArray)
 
         pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, self.root)
 
