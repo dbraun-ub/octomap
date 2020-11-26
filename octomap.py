@@ -334,7 +334,8 @@ class Octomap(object):
         if len(pointArray) == 0:
             branch = None
         elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
-            branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
+            branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=1, color=colorArray[0])])
+            # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
         else:
             if branch is None:
                 branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
@@ -566,7 +567,8 @@ class Octomap(object):
 
         color = (0.5,0.5,0.5)
         if branch is None:
-            branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
+            branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=0, color=color)])
+            # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=0, color=color) for point in pointArray])
         elif not branch.isLeafNode:
             pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(pointArray, branch)
             for k in range(8):
