@@ -330,18 +330,13 @@ class Octomap(object):
                 yield branch
 
     # No loop, don't manipulate array of Point object
-    def __insertPointCloud_noloop(self, pointArray, branch, parent, branchPosition, colorArray):
+    def __insertPointCloud(self, pointArray, branch, parent, branchPosition, colorArray):
         if len(pointArray) == 0:
-            # print("DEBUG - octomap.py - line 409 : branch None")
             branch = None
-        # elif len(pointArray) == 1:
-        #     branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color) for point, color in zip(pointArray, colorArray)])
         elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
             branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
-            # print(f"Branch created - position:{branch.data[0].position}, color:{branch.data[0].color}")
         else:
             if branch is None:
-                # print("DEBUG - octomap.py - line 421 : Create Branch OctNode")
                 branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
             else:
                 if branch.data is not None:
@@ -354,10 +349,7 @@ class Octomap(object):
             pointsBranch, branchPosition, colorBranch = Octomap.__sortByBranches(pointArray, branch, colorArray)
 
             for k in range(8):
-                branch.branches[k] = self.__insertPointCloud_noloop(pointsBranch[k], branch.branches[k], branch, branchPosition[k], colorBranch[k])
-            # for k in range(8):
-            #     process = Process(target=self.__insertPointCloud_noloop, args=(pointsBranch[k], branch.branches[k], branch, branchPosition[k], colorBranch[k]))
-            #     process.start()
+                branch.branches[k] = self.__insertPointCloud(pointsBranch[k], branch.branches[k], branch, branchPosition[k], colorBranch[k])
         return branch
 
     @staticmethod
@@ -455,15 +447,9 @@ class Octomap(object):
         pointsBranch, branchPosition, colorBranch = Octomap.__sortByBranches(ptCloud, self.root, colorArray)
 
         for k in range(8):
-            self.root.branches[k] = self.__insertPointCloud_noloop(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k], colorBranch[k])
+            self.root.branches[k] = self.__insertPointCloud(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k], colorBranch[k])
 
         if rayCast:
-            res = self.worldSize / 2**self.limit_depth
-            freeArray = []
-            for d in depthMap:
-                if d > 0:
-                    freeArray.append(np.arange(0+res, d, res))
-
             self.rayCast()
 
     def getMaxDepth(self):
