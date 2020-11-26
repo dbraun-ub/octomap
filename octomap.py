@@ -339,8 +339,8 @@ class Octomap(object):
             # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
         else:
             if branch is None:
-                # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=1, color=colorArray[0])])
-                branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
+                branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=1, color=colorArray[0])])
+                # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
             else:
                 # if branch.data is not None:
                 #     pointArray.append(branch.data[0].position)
@@ -579,31 +579,37 @@ class Octomap(object):
                 branch.branches[k] = self.__rayCastTree(pointsBranch[k], branch.branches[k], branch, branchPosition[k])
         return branch
 
-    def compareToOctomap(self, octomapBis):
+    def compareToOctomap(self, octomapBis, limit_depth=None):
         # compare the octomap to another.
         # We want it to be as generic as possible. So no notion of size is considered here.
         # We evaluate the Octree. The evalutation is based on the data.occupancy value.
+
+        if limit_depth is None:
+            limit_depth = self.limit_depth
 
         # If an octomap is empty or contains a single element we stop the process
         if self.root.isLeafNode or octomapBis.root.isLeafNode:
             print("One of the octomap is too small to be evaluated")
             return 0
         # Accurcy: percentage of correctly matched nodes
-        miss, match = Octomap.__digIntoDepth(self.root.branches, octomapBis.root.branches, miss=0, match=0)
+        miss, match = Octomap.__digIntoDepth(self.root.branches, octomapBis.root.branches, 0, 0, limit_depth)
         accuracy = match / (miss + match)
+        print(f"match: {match}")
+        print(f"miss: {miss}")
         return accuracy
 
     @staticmethod
-    def __digIntoDepth(branches1, branches2, miss, match):
+    def __digIntoDepth(branches1, branches2, miss, match, limit_depth):
         # depth = Octomap.__getDepthAtBranches(branches1)
         for i in range(8):
             branch1 = branches1[i]
             branch2 = branches2[i]
             if not (branch1 is None or branch2 is None):
-                if not (branch1.isLeafNode or branch2.isLeafNode):
-                    # print('dig!')
-                    # print(depth)
-                    miss, match = Octomap.__digIntoDepth(branch1.branches, branch2.branches, miss, match)
+                if branch1.depth >= limit_depth:
+                    miss += int(branch1.data[0].occupancy != branch2.data[0].occupancy) / (8**branch1.depth)
+                    match += int(branch1.data[0].occupancy == branch2.data[0].occupancy) / (8**branch1.depth)
+                elif not (branch1.isLeafNode or branch2.isLeafNode):
+                    miss, match = Octomap.__digIntoDepth(branch1.branches, branch2.branches, miss, match, limit_depth)
             # while not (branch1.isLeafNode or branch2.isLeafNode):
             #     accuracy = Octomap.__digIntoDepth(branch1.branches, branch2.branches, accuracy)
 
@@ -615,9 +621,9 @@ class Octomap(object):
                 continue
                 # accuracy += 1 / (8**depth)
             elif branch1 is None and not branch2.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(None, branch2.branches, miss, match, branch2.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(None, branch2.branches, miss, match, branch2.depth + 1, limit_depth)
             elif branch2 is None and not branch1.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(None, branch1.branches, miss, match, branch1.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(None, branch1.branches, miss, match, branch1.depth + 1, limit_depth)
             # Test is they are both leaf node. In that case, we compare the values
 
             elif branch1 is None:
@@ -636,23 +642,24 @@ class Octomap(object):
             # If a single one is a leafe node, we get the corresponding value
             # and keep digging into the other tree to compare it with the childens values
             elif branch1.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(branch1.data[0].occupancy, branch2.branches, miss, match, branch2.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(branch1.data[0].occupancy, branch2.branches, miss, match, branch2.depth + 1, limit_depth)
             elif branch2.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(branch2.data[0].occupancy, branch1.branches, miss, match, branch1.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(branch2.data[0].occupancy, branch1.branches, miss, match, branch1.depth + 1, limit_depth)
 
         # print("Accuracy =", accuracy)
         return miss, match
 
     @staticmethod
-    def __digIntoOneTree(comparisonValue, branches, miss, match, depth):
-        # depth = Octomap.__getDepthAtBranches(branches)
+    def __digIntoOneTree(comparisonValue, branches, miss, match, depth, limit_depth):
         assert(depth is not None)
         for branch in branches:
             if branch is not None:
-                if not branch.isLeafNode:
-                    miss, match = Octomap.__digIntoOneTree(comparisonValue, branch.branches, miss, match, depth + 1)
-            # while not branch.isLeafNode:
-            #     accuracy = Octomap.__digIntoOneTree(comparisonValue, branch.branches, accuracy)
+                # force the evaluation if we reach the limit depth
+                if depth >= limit_depth:
+                    miss += int(comparisonValue != branch.data[0].occupancy) / (8**depth)
+                    match += int(comparisonValue == branch.data[0].occupancy) / (8**depth)
+                elif not branch.isLeafNode:
+                    miss, match = Octomap.__digIntoOneTree(comparisonValue, branch.branches, miss, match, depth + 1, limit_depth)
             # If we reach this point, the branch is a node leaf or None
             elif branch is None:
                 # accuracy += int(comparisonValue == None) / (8**depth)
@@ -670,7 +677,10 @@ class Octomap(object):
         return miss, match
 
     # Evaluate the likelihood of an octomap with the self octomap used as a GT reference.
-    def evaluateOctomap(self, octomapToEvaluate):
+    def evaluateOctomap(self, octomapToEvaluate, limit_depth=None):
+        if limit_depth is None:
+            limit_depth = self.limit_depth
+
         if self.root.isLeafNode:
             print("The octomap of reference is empty. It can't be used as an evaluation.")
             return False
@@ -679,12 +689,14 @@ class Octomap(object):
             print("The octomap is too small to be evaluated. Accuracy = 0")
             return 0
         # Accurcy: percentage of correctly matched nodes
-        miss, match = Octomap.__digIntoDepthSingleWay(self.root.branches, octomapToEvaluate.root.branches, miss=0, match=0)
+        miss, match = Octomap.__digIntoDepthSingleWay(self.root.branches, octomapToEvaluate.root.branches, 0, 0, limit_depth)
         accuracy = match / (miss + match)
+        print(f"match: {match}")
+        print(f"miss: {miss}")
         return accuracy
 
     @staticmethod
-    def __digIntoDepthSingleWay(refBranches, evalBranches, miss, match):
+    def __digIntoDepthSingleWay(refBranches, evalBranches, miss, match, limit_depth):
         # Similar to digIntoDepth but do an oriented evaluation.
         # Only evaluate nodes with known information from the reference branch
 
@@ -695,13 +707,17 @@ class Octomap(object):
         for i in range(8):
             refBranch = refBranches[i]
             evalBranch = evalBranches[i]
+
             # If they are both not leafnodes we dig deeper
             if not (refBranch is None or evalBranch is None):
-                if not (refBranch.isLeafNode or evalBranch.isLeafNode):
-                    miss, match = Octomap.__digIntoDepthSingleWay(refBranch.branches, evalBranch.branches, miss, match)
+                if refBranch.depth >= limit_depth:
+                    miss += int(refBranch.data[0].occupancy != evalBranch.data[0].occupancy) / (8**refBranch.depth)
+                    match += int(refBranch.data[0].occupancy == evalBranch.data[0].occupancy) / (8**refBranch.depth)
+                elif not (refBranch.isLeafNode or evalBranch.isLeafNode):
+                    miss, match = Octomap.__digIntoDepthSingleWay(refBranch.branches, evalBranch.branches, miss, match, limit_depth)
 
             # If ref branch is None, we ignore
-            if refBranch is None:
+            elif refBranch is None:
                 continue
             # If eval branch is None but ref branch is not
             elif evalBranch is None:
@@ -711,7 +727,7 @@ class Octomap(object):
                     match += int(None == refBranch.data[0].occupancy) / (8**refBranch.depth)
                 # Else we dig into the tree
                 else:
-                    miss, match = Octomap.__digIntoOneTree(None, refBranch.branches, miss, match, refBranch.depth + 1)
+                    miss, match = Octomap.__digIntoOneTree(None, refBranch.branches, miss, match, refBranch.depth + 1, limit_depth)
             #If they are both leaf node, we evaluate
             elif refBranch.isLeafNode and evalBranch.isLeafNode:
                 miss += int(refBranch.data[0].occupancy != evalBranch.data[0].occupancy) / (8**refBranch.depth)
@@ -719,9 +735,9 @@ class Octomap(object):
             # If a single one is a leafe node, we get the corresponding value
             # and keep digging into the other tree to compare it with the childens values
             elif refBranch.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(refBranch.data[0].occupancy, evalBranch.branches, miss, match, evalBranch.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(refBranch.data[0].occupancy, evalBranch.branches, miss, match, evalBranch.depth + 1, limit_depth)
             elif evalBranch.isLeafNode:
-                miss, match = Octomap.__digIntoOneTree(evalBranch.data[0].occupancy, refBranch.branches, miss, match, refBranch.depth + 1)
+                miss, match = Octomap.__digIntoOneTree(evalBranch.data[0].occupancy, refBranch.branches, miss, match, refBranch.depth + 1, limit_depth)
 
         # print("Accuracy =", accuracy)
         return miss, match
