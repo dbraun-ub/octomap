@@ -105,13 +105,11 @@ class Octomap(object):
 
         """
         if torch.cuda.is_available():
-            dev = "cuda:0"
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
+            self.device = "cuda:0"
         else:
-            dev = "cpu"
-            torch.set_default_tensor_type('torch.FloatTensor')
-        device = torch.device(dev)
-        print(f"device: {dev}")
+            self.device = "cpu"
+        device = torch.device(self.device)
+        print(f"device: {self.device}")
 
 
         self.root = OctNode(origin, worldSize, 0, [])
@@ -378,14 +376,21 @@ class Octomap(object):
 
     @staticmethod
     def __sortByBranches(pointArray, branch, colorArray):
+
+        if torch.cuda.is_available():
+            device = "cuda:0"
+        else:
+            device = "cpu"
+
         # dispatch points in the eight branches
         # branch: 0 1 2 3 4 5 6 7
         # x:      - - - - + + + +
         # y:      - - + + - - + +
         # z:      - + - + - + - +
         m = torch.tensor([[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
-             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
-        print(f"What device is this tensor using ? {m.get_device()}")
+             [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]], dtype=torch.float32)
+        m = m.to(device)
+        # print(f"What device is this tensor using ? {m.get_device()}")
         pointsBranch = [[], [], [], [], [], [], [], []]
         colorBranch = [[], [], [], [], [], [], [], []]
         offset = branch.size / 4
@@ -426,6 +431,7 @@ class Octomap(object):
         cy = intrinsic[1,2]
         fx = intrinsic[0,0]
         fy = intrinsic[1,1]
+        # print(depthMap.shape)
         h,w = depthMap.shape
 
         if image is None:
@@ -434,6 +440,8 @@ class Octomap(object):
             colorArray = image.reshape(h*w)
         else:
             colorArray = image.reshape(h*w,3)
+
+        colorArray = torch.from_numpy(colorArray).float().to(self.device)
 
 
         # starting from root, dispatch points in the eight root branches
@@ -445,24 +453,23 @@ class Octomap(object):
              [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]])#, dtype=torch.float32)
         offset = self.root.size / 2
         pointsBranch = [[], [], [], [], [], [], [], []]
-        ptCloud = []
+        # ptCloud = []
         # u,v = torch.meshgrid(torch.arange(start=0.,end=w,step=1.,dtype=torch.float32),torch.arange(0.,h,1.,dtype=torch.float32))
         # start=self.origin[2]+res, end=float(d/depthScale), step=res
-        u,v = torch.meshgrid(torch.arange(0.,float(w)),torch.arange(0.,float(h)))
-        u = u.reshape(h*w,1).to('cuda:0')
-        v = v.reshape(h*w,1).to('cuda:0')
-        print(u.dtype)
+        u,v = torch.meshgrid(torch.arange(0,float(w)),torch.arange(0,float(h)))
+        u = u.reshape(h*w,1)
+        v = v.reshape(h*w,1)
+        # print(u.dtype)
         depthMap = depthMap.reshape(h*w,1)
         z = depthMap / depthScale
-        x = u*z
         x = (u - K[0,2]) * z / K[0,0]
         y = (v - K[1,2]) * z / K[1,1]
         # x = (u - cx) * z / fx
         # y = (v - cy) * z / fy
 
         # ptCloud = np.concatenate((x,y,z), axis=1)
-        ptCloud = torch.cat((x,y,z), 1)
-        print(ptCloud)
+        ptCloud = torch.cat((x,y,z), 1).to(self.device)
+        # print(ptCloud)
         # print(f"ptCloud length : {len(ptCloud)}")
         # Filter out points outside max depth
         if maxDepth > 0:
@@ -477,6 +484,7 @@ class Octomap(object):
         if len(ptCloud) > 0:
             self.root.isLeafNode = False
 
+
         # allocate the point to the corresponding branch
         pointsBranch, branchPosition, colorBranch = Octomap.__sortByBranches(ptCloud, self.root, colorArray)
 
@@ -484,29 +492,31 @@ class Octomap(object):
             self.root.branches[k] = self.__insertPointCloud_noloop(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k], colorBranch[k])
 
         if rayCast:
-            res = self.worldSize / 2**self.limit_depth
-            freeArray = []
-            X = torch.tensor([])#, dtype=torch.float32)
-            Y = torch.tensor([])#, dtype=torch.float32)
-            Z = torch.tensor([])#, dtype=torch.float32)
-            for d, cu, cv in zip(depthMap, u, v):
-                if d > 0:
-                    z = torch.arange(start=self.origin[2]+res, end=float(d/depthScale), step=res)
-                    x = (cu - K[0,2]) * z / K[0,0]
-                    y = (cv - K[1,2]) * z / K[1,1]
-                    X = torch.cat((X,x))
-                    Y = torch.cat((Y,y))
-                    Z = torch.cat((Z,z))
-
-            freeArray = torch.cat((X,Y,Z))
-            freeArray = freeArray.reshape(3, freeArray.shape / 3)
-            freeArray = torch.transpose(freeArray, 0, 1)
-
-
-            pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(freeArray, self.root)
-
-            for k in range(8):
-                self.root.branches[k] = self.__rayCastTree(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k])
+            self.rayCast()
+        # if rayCast:
+        #     res = self.worldSize / 2**self.limit_depth
+        #     freeArray = []
+        #     X = torch.tensor([])#, dtype=torch.float32)
+        #     Y = torch.tensor([])#, dtype=torch.float32)
+        #     Z = torch.tensor([])#, dtype=torch.float32)
+        #     for d, cu, cv in zip(depthMap, u, v):
+        #         if d > 0:
+        #             z = torch.arange(start=self.origin[2]+res, end=float(d/depthScale), step=res)
+        #             x = (cu - K[0,2]) * z / K[0,0]
+        #             y = (cv - K[1,2]) * z / K[1,1]
+        #             X = torch.cat((X,x))
+        #             Y = torch.cat((Y,y))
+        #             Z = torch.cat((Z,z))
+        #
+        #     freeArray = torch.cat((X,Y,Z))
+        #     freeArray = freeArray.reshape(3, freeArray.shape / 3)
+        #     freeArray = torch.transpose(freeArray, 0, 1)
+        #
+        #
+        #     pointsBranch, branchPosition = Octomap.__sortByBranches_noColor(freeArray, self.root)
+        #
+        #     for k in range(8):
+        #         self.root.branches[k] = self.__rayCastTree(pointsBranch[k], self.root.branches[k], self.root, branchPosition[k])
 
     def getMaxDepth(self):
         max_depth = 0
