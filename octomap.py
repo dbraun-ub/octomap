@@ -333,17 +333,21 @@ class Octomap(object):
     def __insertPointCloud(self, pointArray, branch, parent, branchPosition, colorArray):
         if len(pointArray) == 0:
             branch = None
-        elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
+        # elif (len(pointArray) == 1) or (self.limit_depth > 0 and parent.depth + 1 >= self.limit_depth):
+        elif parent.depth + 1 >= self.limit_depth:
             branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=1, color=colorArray[0])])
             # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(point, occupancy=1, color=color) for point, color in zip(pointArray, colorArray)])
         else:
             if branch is None:
+                # branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [Point(branchPosition, occupancy=1, color=colorArray[0])])
                 branch = OctNode(branchPosition, parent.size / 2, parent.depth + 1, [])
             else:
-                if branch.data is not None:
-                    pointArray.append(branch.data[0].position)
-                    colorArray.append(branch.data[0].color)
-                    branch.data = []
+                # if branch.data is not None:
+                #     pointArray.append(branch.data[0].position)
+                #     colorArray.append(branch.data[0].color)
+                #     branch.data = []
+                if branch.data is not None and branch.data[0].occupancy != 1:
+                    branch.data[0].occupancy = 1
             branch.isLeafNode = False
 
             # dispatch points in the eight branches
