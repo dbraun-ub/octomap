@@ -749,3 +749,100 @@ class Octomap(object):
             if b is not None:
                 return b.depth
         return None
+
+    def rayCast2(self):
+        ## navigate through the tree and replace unknown area with free area when necessary
+
+        # Construit 8 points clouds correspondant aux noeuds occupés de la première
+        # subdivision en 8 du cube.
+        # Conversion des points de coordonnées cartériennes en coordonnées sphériques
+
+        # On parcourt ensuite l'arbre de chacun des 8 cubes.
+        # Pour chaque noeud inconnu, on calcul les huits points correspondant
+        # aux sommets du cube. On teste ensuite si il y a des points du point cloud
+        # qui rentre dans les critères suivant :
+        # -> r_occ > r_max
+        # -> phi_min < phi_occ < phi_max
+        # -> theta_min < theta_occ < theta_max
+        # Si au moins un point du point cloud rempli les critères, le noeud est considéré comme libre.
+
+        for i, branch in enumerate(self.root.branches):
+            ptCloud = []
+            ptCloud = Octomap.getPointCloudInBranch(ptCloud, branch)
+            if len(ptCloud):
+                ptCloud = np.array(ptCloud)
+                self.root.branches[i] = self.rayCastTree2(np.array(ptCloud), branch, self.root, i)
+
+
+
+    @staticmethod
+    def getPointCloudInBranch(ptCloud, branch):
+        if branch is None:
+            return ptCloud
+        elif branch.isLeafNode:
+            x,y,z = branch.position
+            r = (x**2 + y**2 + z**2)**(1/2)
+            phi = np.arctan(abs(y / x))
+            theta = np.arctan((x**2 + y**2)**(1/2) / abs(z))
+            ptCloud.append([r, phi, theta])
+        else:
+            for b in branch.branches:
+                ptCloud = Octomap.getPointCloudInBranch(ptCloud, b)
+
+        return ptCloud
+
+
+    def rayCastTree2(self, ptCloud, branch, parent, branchNumber):
+        if branch is None:
+            m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+                 [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
+            offset = parent.size / 4
+            branchCenter = np.add(parent.position, np.multiply(offset, m[branchNumber]))
+            branchBorders = np.add(branchCenter, np.multiply(offset, m))
+            x = branchBorders[:,0]
+            y = branchBorders[:,1]
+            z = branchBorders[:,2]
+            r = (x**2 + y**2 + z**2)**(1/2)
+            phi = np.arctan(abs(y)/np.maximum(abs(x),1e-7))
+            theta = np.arctan((x**2 + y**2)**(1/2) / np.maximum(abs(z),1e-7))
+
+            # if np.any(ptCloud[:,0] > np.max(r)):
+            #     if np.any((ptCloud[:,1] > np.min(phi)) * (ptCloud[:,1] < np.max(phi))):
+            #         if np.any((ptCloud[:,2] > np.min(theta)) * (ptCloud[:,2] < np.max(theta))):
+            #             branch = OctNode(branchCenter, parent.size / 2, parent.depth + 1, [Point(branchCenter, occupancy=0, color=(0.5,0.5,0.5))])
+
+            if np.any((ptCloud[:,0] > np.max(r))
+                    * (ptCloud[:,1] > np.min(phi)) * (ptCloud[:,1] < np.max(phi))
+                    * (ptCloud[:,2] > np.min(theta)) * (ptCloud[:,2] < np.max(theta))):
+                branch = OctNode(branchCenter, parent.size / 2, parent.depth + 1, [Point(branchCenter, occupancy=0, color=(0.5,0.5,0.5))])
+
+            # np.any(ptCloud < np.array([0, np.max(phi), np.max(theta)])) and np.any(ptCloud > np.array([np.max(r), np.min(phi), np.min(theta)])):
+
+
+        elif not branch.isLeafNode:
+            m = [[-1,-1,-1], [-1,-1, 1], [-1, 1,-1], [-1, 1, 1],
+                 [ 1,-1,-1], [ 1,-1, 1], [ 1, 1,-1], [ 1, 1, 1]]
+            offset = parent.size / 4
+            branchCenter = np.add(parent.position, np.multiply(offset, m[branchNumber]))
+            branchBorders = np.add(branchCenter, np.multiply(offset, m))
+            x = branchBorders[:,0]
+            y = branchBorders[:,1]
+            z = branchBorders[:,2]
+            r = (x**2 + y**2 + z**2)**(1/2)
+            phi = np.arctan(abs(y)/np.maximum(abs(x),1e-7))
+            theta = np.arctan((x**2 + y**2)**(1/2) / np.maximum(abs(z),1e-7))
+
+            # if np.any(ptCloud[:,0] > np.max(r)):
+            #     if np.any((ptCloud[:,1] > np.min(phi)) * (ptCloud[:,1] < np.max(phi))):
+            #         if np.any((ptCloud[:,2] > np.min(theta)) * (ptCloud[:,2] < np.max(theta))):
+            #             branch = OctNode(branchCenter, parent.size / 2, parent.depth + 1, [Point(branchCenter, occupancy=0, color=(0.5,0.5,0.5))])
+
+            idx = ((ptCloud[:,0] > np.min(r)) # Difference here : we compare to the minimum value
+                * (ptCloud[:,1] > np.min(phi)) * (ptCloud[:,1] < np.max(phi))
+                * (ptCloud[:,2] > np.min(theta)) * (ptCloud[:,2] < np.max(theta)))
+
+            if np.any(idx):
+                for i, b in enumerate(branch.branches):
+                    branch.branches[i] = self.rayCastTree2(ptCloud[idx], b, branch, i)
+
+        return branch
